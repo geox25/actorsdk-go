@@ -73,6 +73,10 @@ func Coalesce(values ...string) string {
 	return ""
 }
 
+func normalizeEnvBool(value string) string {
+	return strings.TrimSpace(strings.ToLower(value))
+}
+
 func Truncate(value []byte, limit int) string {
 	if len(value) <= limit {
 		return string(value)

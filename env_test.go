@@ -13,6 +13,7 @@ func TestDetectEnvDefaults(t *testing.T) {
 	t.Setenv("ACTOR_DEFAULT_KEY_VALUE_STORE_ID", "")
 	t.Setenv("APIFY_DEFAULT_KEY_VALUE_STORE_ID", "")
 	t.Setenv("APIFY_IS_AT_HOME", "")
+	t.Setenv("APIFY_USER_IS_PAYING", "")
 
 	env := DetectEnv()
 
@@ -34,6 +35,9 @@ func TestDetectEnvDefaults(t *testing.T) {
 	if env.UsingApifyAPI() {
 		t.Fatal("expected UsingApifyAPI to be false")
 	}
+	if env.UserIsPayingKnown {
+		t.Fatal("expected UserIsPayingKnown to be false")
+	}
 }
 
 func TestDetectEnvOverrideAndUsingApifyAPI(t *testing.T) {
@@ -44,6 +48,7 @@ func TestDetectEnvOverrideAndUsingApifyAPI(t *testing.T) {
 	t.Setenv("ACTOR_DEFAULT_DATASET_ID", "dataset-1")
 	t.Setenv("ACTOR_DEFAULT_KEY_VALUE_STORE_ID", "store-1")
 	t.Setenv("APIFY_IS_AT_HOME", "1")
+	t.Setenv("APIFY_USER_IS_PAYING", "1")
 
 	env := DetectEnv()
 
@@ -58,5 +63,37 @@ func TestDetectEnvOverrideAndUsingApifyAPI(t *testing.T) {
 	}
 	if !env.UsingApifyAPI() {
 		t.Fatal("expected UsingApifyAPI to be true")
+	}
+	if !env.UserIsPayingKnown || !env.UserIsPaying {
+		t.Fatal("expected paying user state to be detected")
+	}
+}
+
+func TestResolveResultLimit(t *testing.T) {
+	freeEnv := Env{UserIsPaying: false, UserIsPayingKnown: true}
+	paidEnv := Env{UserIsPaying: true, UserIsPayingKnown: true}
+	unknownEnv := Env{}
+
+	freeDecision := ResolveResultLimit(freeEnv, 200, 20)
+	if !freeDecision.Limited || freeDecision.EffectiveMaxResults != 20 {
+		t.Fatalf("unexpected free decision: %#v", freeDecision)
+	}
+	if freeDecision.Message == "" {
+		t.Fatal("expected free-user limit message")
+	}
+
+	paidDecision := ResolveResultLimit(paidEnv, 200, 20)
+	if paidDecision.Limited || paidDecision.EffectiveMaxResults != 200 {
+		t.Fatalf("unexpected paid decision: %#v", paidDecision)
+	}
+
+	unknownDecision := ResolveResultLimit(unknownEnv, 200, 20)
+	if unknownDecision.Limited || unknownDecision.EffectiveMaxResults != 200 {
+		t.Fatalf("unexpected unknown decision: %#v", unknownDecision)
+	}
+
+	alreadyBelowCap := ResolveResultLimit(freeEnv, 10, 20)
+	if alreadyBelowCap.Limited || alreadyBelowCap.EffectiveMaxResults != 10 {
+		t.Fatalf("unexpected already-below-cap decision: %#v", alreadyBelowCap)
 	}
 }

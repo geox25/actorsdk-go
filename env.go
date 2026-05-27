@@ -53,7 +53,15 @@ func ResolveResultLimit(env Env, requestedMaxResults, freeUserMaxResults int) Re
 		EffectiveMaxResults: requestedMaxResults,
 	}
 
-	if freeUserMaxResults <= 0 || !env.UserIsPayingKnown || env.UserIsPaying {
+	if freeUserMaxResults <= 0 {
+		return decision
+	}
+
+	if env.UserIsPayingKnown && env.UserIsPaying {
+		return decision
+	}
+
+	if !env.UserIsPayingKnown && !env.IsAtHome {
 		return decision
 	}
 
@@ -65,7 +73,6 @@ func ResolveResultLimit(env Env, requestedMaxResults, freeUserMaxResults int) Re
 
 	return decision
 }
-
 func parseOptionalBool(value string) (bool, bool) {
 	switch normalizeEnvBool(value) {
 	case "1", "true", "yes", "y", "on":

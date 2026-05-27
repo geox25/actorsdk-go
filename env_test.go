@@ -87,13 +87,21 @@ func TestResolveResultLimit(t *testing.T) {
 		t.Fatalf("unexpected paid decision: %#v", paidDecision)
 	}
 
-	unknownDecision := ResolveResultLimit(unknownEnv, 200, 20)
-	if unknownDecision.Limited || unknownDecision.EffectiveMaxResults != 200 {
-		t.Fatalf("unexpected unknown decision: %#v", unknownDecision)
+	localUnknownDecision := ResolveResultLimit(unknownEnv, 200, 20)
+	if localUnknownDecision.Limited || localUnknownDecision.EffectiveMaxResults != 200 {
+		t.Fatalf("unexpected local unknown decision: %#v", localUnknownDecision)
 	}
 
 	alreadyBelowCap := ResolveResultLimit(freeEnv, 10, 20)
 	if alreadyBelowCap.Limited || alreadyBelowCap.EffectiveMaxResults != 10 {
 		t.Fatalf("unexpected already-below-cap decision: %#v", alreadyBelowCap)
+	}
+
+	atHomeUnknownEnv := Env{
+		IsAtHome: true,
+	}
+	atHomeUnknownDecision := ResolveResultLimit(atHomeUnknownEnv, 200, 20)
+	if !atHomeUnknownDecision.Limited || atHomeUnknownDecision.EffectiveMaxResults != 20 {
+		t.Fatalf("unexpected at-home unknown decision: %#v", atHomeUnknownDecision)
 	}
 }

@@ -12,7 +12,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const defaultAPIWriteAttempts = 4
 
 type Client struct {
 	Env          Env
@@ -129,23 +132,36 @@ func (client *Client) SetRecord(key string, value any) error {
 			url.QueryEscape(client.Env.ApifyToken),
 		)
 
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, recordURL, bytes.NewReader(body))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", "application/json")
+		for attempt := 1; attempt <= defaultAPIWriteAttempts; attempt++ {
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, recordURL, bytes.NewReader(body))
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Content-Type", "application/json")
 
-		resp, err := client.HTTPClient.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
+			resp, err := client.HTTPClient.Do(req)
+			if err != nil {
+				if attempt < defaultAPIWriteAttempts {
+					time.Sleep(apiWriteRetryDelay(attempt))
+					continue
+				}
+				return err
+			}
 
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-			return fmt.Errorf("%s API returned %d: %s", key, resp.StatusCode, strings.TrimSpace(string(body)))
+			bodySnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return nil
+			}
+
+			if shouldRetryAPIWriteStatus(resp.StatusCode) && attempt < defaultAPIWriteAttempts {
+				time.Sleep(apiWriteRetryDelay(attempt))
+				continue
+			}
+
+			return fmt.Errorf("%s API returned %d: %s", key, resp.StatusCode, strings.TrimSpace(string(bodySnippet)))
 		}
-		return nil
 	}
 
 	path := filepath.Join(client.Env.LocalStorageDir, "key_value_stores", client.Env.ActorDefaultKeyValueID, key+".json")
@@ -172,23 +188,36 @@ func PushData[T any](client *Client, rows []T) error {
 			url.QueryEscape(client.Env.ApifyToken),
 		)
 
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, datasetURL, bytes.NewReader(body))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", "application/json")
+		for attempt := 1; attempt <= defaultAPIWriteAttempts; attempt++ {
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, datasetURL, bytes.NewReader(body))
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Content-Type", "application/json")
 
-		resp, err := client.HTTPClient.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
+			resp, err := client.HTTPClient.Do(req)
+			if err != nil {
+				if attempt < defaultAPIWriteAttempts {
+					time.Sleep(apiWriteRetryDelay(attempt))
+					continue
+				}
+				return err
+			}
 
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-			return fmt.Errorf("dataset API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			bodySnippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				return nil
+			}
+
+			if shouldRetryAPIWriteStatus(resp.StatusCode) && attempt < defaultAPIWriteAttempts {
+				time.Sleep(apiWriteRetryDelay(attempt))
+				continue
+			}
+
+			return fmt.Errorf("dataset API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(bodySnippet)))
 		}
-		return nil
 	}
 
 	if err := os.MkdirAll(client.datasetDir, 0o755); err != nil {
@@ -209,4 +238,15 @@ func PushData[T any](client *Client, rows []T) error {
 	}
 
 	return nil
+}
+
+func shouldRetryAPIWriteStatus(statusCode int) bool {
+	return statusCode == http.StatusTooManyRequests || statusCode >= 500
+}
+
+func apiWriteRetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	return time.Duration(attempt*attempt) * 200 * time.Millisecond
 }
